@@ -26,7 +26,7 @@ An existing `com.codekunda.simulator-webcast` LaunchAgent is backed up and repla
 ## Use
 
 1. Boot the initially selected Simulator in Xcode or Simulator and launch your app. The installer does not boot a Simulator or build your project.
-2. On the Mac, open **http://127.0.0.1:8766/**. The page lists available iOS Simulators with their runtime, boot status and UUID. Choose one and click **Switch**; a shut-down choice is booted automatically. The selected UUID, Mac’s Tailscale IP and exact preview URL are shown below. Use **Add login item** / **Remove login item** to control automatic startup at the next login. Click **Start broadcast** when ready.
+2. On the Mac, open **http://127.0.0.1:8766/**. The page lists available iOS Simulators with their runtime, boot status and UUID. Choose one and click **Switch**; a shut-down choice is booted automatically. The selected UUID, Mac’s Tailscale IP and exact preview URL have **Copy** buttons. Use the **Start control server at login** switch to control automatic startup, and the **Broadcast** switch to start or stop the preview.
 3. On a tailnet-connected viewing device, open the preview URL shown on the control page (`http://MAC_TAILSCALE_IP:8765/`). Tap or swipe the image to interact.
 4. Click **Stop broadcast** in the local control page when done. The preview and input endpoints return unavailable while off, and the stream process is terminated. Both the selected Simulator and enabled/disabled choice persist across service restarts. Switching while broadcasting retargets the stream and input without changing the broadcast setting. The configured app bundle ID stays the same, so **Run app** requires that app to be installed on the new Simulator.
 
