@@ -12,12 +12,14 @@ Private, interactive iOS Simulator preview over Tailscale. A local control page 
 
 **Tailscale on both ends.** Install and connect Tailscale on the hosting Mac *and* each viewing phone/computer, using the same tailnet. The viewer opens the Mac's private Tailscale IPv4 on TCP 8765; the Mac-only control page is on localhost TCP 8766. No public internet exposure or port-forward is needed. Follow **Set up Tailscale** below and confirm your tailnet policy allows viewer → Mac TCP 8765.
 
+**VPS-hosted AI agent (only if applicable).** If your coding agent runs on a VPS, the VPS also needs Tailscale access to the Mac and SSH login as the Mac user who runs Xcode/Simulator. Enable **Remote Login** on the Mac, authorize the VPS's SSH public key for that user, and allow VPS → Mac TCP 22 in your tailnet policy. This SSH connection lets the agent build, install, and control the app on the Mac; viewers still connect directly to the Mac on TCP 8765. A VPS is not required when the agent runs locally on the Mac or you only want to watch the preview.
+
 **App ID and display size.** The installer asks for the initial Simulator's logical width and height in **points**, not a screenshot's pixel dimensions. For an iOS app, log `UIScreen.main.bounds.size` while that app runs on the chosen Simulator, or use that model's published logical-point dimensions. Find the app's bundle identifier in Xcode under **Target → General → Bundle Identifier**. A placeholder such as `com.example.MyApp` is fine if you only want to view Simulator Home; **Run app** works only when the configured bundle ID is installed on the selected Simulator. Switching devices updates dimensions automatically, but does not change the configured bundle ID.
 
 ## Set up Tailscale
 
 1. Install [Tailscale for macOS](https://tailscale.com/download/mac) on the **Mac hosting Simulator**. Open it, sign in, connect, and grant any macOS VPN/network-extension permission requested. Signing up creates a tailnet if you do not already have one.
-2. Install [Tailscale](https://tailscale.com/download) on the **viewing phone or computer**. Sign into the same tailnet and connect its VPN. On iPhone/iPad, accept the iOS VPN configuration prompt. No Tailscale Funnel/Serve, public DNS, VPS, or router port-forward is needed.
+2. Install [Tailscale](https://tailscale.com/download) on the **viewing phone or computer**. Sign into the same tailnet and connect its VPN. On iPhone/iPad, accept the iOS VPN configuration prompt. If your AI agent runs on a VPS, connect the VPS to this tailnet too. No Tailscale Funnel/Serve, public DNS, or router port-forward is needed; the VPS is optional unless it hosts your agent.
 3. On the Mac, find its tailnet IPv4 address:
 
    ```bash
@@ -25,7 +27,7 @@ Private, interactive iOS Simulator preview over Tailscale. A local control page 
    ```
 
    If `tailscale` is not on `PATH`, try `/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4` or read the IP in the Tailscale app. The installer also attempts to detect it. Use this **Mac** address, not the viewer's address or a public IP.
-4. Confirm both devices are online in the [Tailscale admin console](https://login.tailscale.com/admin/machines). The tailnet policy must permit the viewer to reach the Mac on **TCP 8765** (or your custom preview port). A new personal tailnet's default policy allows device-to-device connections; if you have custom grants/ACLs, add this connection there. The local control UI on TCP 8766 is not exposed to the tailnet.
+4. Confirm the Mac and viewer (and VPS, if used) are online in the [Tailscale admin console](https://login.tailscale.com/admin/machines). The tailnet policy must permit viewer → Mac **TCP 8765** (or your custom preview port), plus VPS → Mac **TCP 22** if the agent uses SSH. A new personal tailnet's default policy allows device-to-device connections; if you have custom grants/ACLs, add these connections there. The local control UI on TCP 8766 is not exposed to the tailnet.
 
 The Mac must stay awake, logged in, and connected to Tailscale. The private IP is not a password: anyone your tailnet policy allows onto the preview port can view/control the Simulator while broadcasting.
 
