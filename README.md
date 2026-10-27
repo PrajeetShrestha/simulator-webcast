@@ -4,11 +4,15 @@ Private, interactive iOS Simulator preview over Tailscale. A local control page 
 
 ## Requirements
 
-- macOS with Xcode and an installed iOS Simulator runtime
-- A logged-in macOS desktop session
-- Homebrew and Meta `idb` (`idb-cli` and `idb-companion`)
-- Tailscale on the Mac and viewing phone/computer, both connected to the same tailnet
-- Your app's bundle ID and the initial device's logical display size in **points**; install the app on that Simulator to use **Run app**
+**Mac, Xcode, and Simulator.** The Mac runs the iOS Simulator and the webcast server; the viewing phone does not need Xcode. Install the full Xcode app, open it once to finish setup, and add an iOS Simulator runtime in **Xcode → Settings → Platforms**. Verify with `xcodebuild -version` and `xcrun simctl list devices available`. If the latter lists no iOS devices, install the runtime before running the webcast installer. Xcode Command Line Tools alone are not enough.
+
+**Logged-in desktop session.** Sign into the Mac's graphical desktop account and leave that account logged in while broadcasting. The per-user LaunchAgent runs in that account; it cannot log in at the lock screen after a reboot. Keep the Mac awake. Locking an already logged-in session is different from logging out, but sleep, logout, or shutdown interrupts the preview. After a reboot, log back in and boot the selected Simulator.
+
+**Homebrew and Meta idb.** Homebrew installs `idb-cli` (the `idb` command and its Python package) and `idb-companion` (the Simulator-side companion). The installer checks both. idb provides the preferred MJPEG video stream and sends native taps/swipes; video can fall back to slower `simctl` screenshots, but interactive touch still needs idb. Install and verify them in **Prepare the Mac** below.
+
+**Tailscale on both ends.** Install and connect Tailscale on the hosting Mac *and* each viewing phone/computer, using the same tailnet. The viewer opens the Mac's private Tailscale IPv4 on TCP 8765; the Mac-only control page is on localhost TCP 8766. No public internet exposure or port-forward is needed. Follow **Set up Tailscale** below and confirm your tailnet policy allows viewer → Mac TCP 8765.
+
+**App ID and display size.** The installer asks for the initial Simulator's logical width and height in **points**, not a screenshot's pixel dimensions. For an iOS app, log `UIScreen.main.bounds.size` while that app runs on the chosen Simulator, or use that model's published logical-point dimensions. Find the app's bundle identifier in Xcode under **Target → General → Bundle Identifier**. A placeholder such as `com.example.MyApp` is fine if you only want to view Simulator Home; **Run app** works only when the configured bundle ID is installed on the selected Simulator. Switching devices updates dimensions automatically, but does not change the configured bundle ID.
 
 ## Set up Tailscale
 
@@ -33,6 +37,8 @@ The Mac must stay awake, logged in, and connected to Tailscale. The private IP i
    ```bash
    brew tap facebook/fb
    brew install idb-cli idb-companion
+   idb --version
+   command -v idb_companion
    ```
 
 3. Boot your chosen Simulator in Xcode/Simulator and build and run your app on it. Note the app's bundle ID and the device's logical display width/height in **points**, not screenshot pixels. The installer needs an initial bundle ID, but you can use a placeholder such as `com.example.MyApp` to preview Simulator Home; **Run app** only works once that bundle ID is installed.
