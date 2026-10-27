@@ -45,16 +45,54 @@ The Mac must stay awake, logged in, and connected to Tailscale. The private IP i
 
 ## Install
 
-Download the [latest release archive](https://github.com/PrajeetShrestha/simulator-webcast/releases/latest) from this repository, extract it on the **Mac hosting Simulator**, then run from the directory containing `install.py` and `server.py`:
+On the **Mac hosting Simulator**, run this one-liner as the logged-in Mac user. It downloads the latest [release archive](https://github.com/PrajeetShrestha/simulator-webcast/releases/latest), unpacks it in a temporary directory, and starts the interactive installer (which asks for your Simulator, app bundle ID, display size, and Tailscale IP):
 
 ```bash
-cd simulator-webcast
-python3 install.py
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/PrajeetShrestha/simulator-webcast/main/install-latest.sh)"
 ```
 
-The installer lists available iOS Simulators and asks for the device, app bundle ID, logical width/height, and Tailscale IPv4. It validates `idb` and creates a per-user LaunchAgent. For automation, pass `--udid`, `--bundle-id`, `--point-width`, `--point-height`, and `--tailscale-ip`; see `python3 install.py --help`. Run it as the logged-in Mac user, **not with `sudo`**.
+The bootstrap requires `curl`, `tar`, `python3`, and GitHub access; it does not require `gh` or `jq`. It removes only its temporary download after installation. To inspect the script before running it, open [`install-latest.sh`](install-latest.sh). For a non-interactive agent install, append arguments after a placeholder `$0`:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/PrajeetShrestha/simulator-webcast/main/install-latest.sh)" _ --udid SIMULATOR_UDID --bundle-id com.example.MyApp --point-width WIDTH --point-height HEIGHT --tailscale-ip MAC_TAILSCALE_IP
+```
+
+The installer lists available iOS Simulators and asks for the device, app bundle ID, logical width/height, and Tailscale IPv4. It validates `idb` and creates a per-user LaunchAgent. For automation, use the non-interactive one-liner above; the same flags also work with `python3 install.py` if you downloaded the archive manually. Run it as the logged-in Mac user, **not with `sudo`**.
 
 An existing `com.codekunda.simulator-webcast` LaunchAgent is backed up and replaced. The installed server is a per-user macOS login item and starts when that user logs in, but **broadcast defaults to off**. Existing server files are backed up before replacement.
+
+## Use an existing AI coding agent
+
+The agent does **not** connect to the video feed to build an app. Give it shell access to the **Mac hosting Xcode**; it creates/builds the native iOS project there, installs it on Simulator, and starts Simulator Webcast. You then watch and interact from a tailnet-connected browser. Any coding agent that can edit files and run shell commands works; no agent-specific plugin or API key is required.
+
+1. **Give the agent Mac access.** If it already runs in the logged-in Mac account, use its local shell. If it runs on another computer/VPS, join that host to the same Tailscale tailnet, turn on **System Settings → General → Sharing → Remote Login** on the Mac, and authorize the agent host's SSH public key for the Mac user. From the agent host, verify `ssh MAC_USER@MAC_TAILSCALE_IP 'xcodebuild -version && xcrun simctl list devices available'`. Use the Mac's Tailscale IP and an SSH key; do not expose SSH or webcast ports publicly. Keep the Mac's GUI account logged in and awake—SSH alone cannot create that desktop session after a reboot.
+2. **Give it the project requirements.** Specify the app behavior, a unique bundle ID (for example `com.example.MyApp`), the target Simulator, and the logical display size in points. Tell the agent to use Xcode/SwiftUI or your existing iOS project and to build for `iphonesimulator`, not a physical iPhone. The bundle ID it builds must match `--bundle-id` when installing Webcast. Simulator builds generally do not require device signing.
+3. **Have it build and run on the Mac.** For an existing Xcode project, the agent can adapt this sequence (use `-workspace` instead of `-project` for a workspace; replace the scheme, path, and bundle ID):
+
+   ```bash
+   xcrun simctl list devices available
+   xcrun simctl boot SIMULATOR_UDID                 # omit if already Booted
+   xcrun simctl bootstatus SIMULATOR_UDID -b
+   xcodebuild -project MyApp.xcodeproj -scheme MyApp \
+     -sdk iphonesimulator -destination 'platform=iOS Simulator,id=SIMULATOR_UDID' \
+     -derivedDataPath /tmp/myapp-simulator-build CODE_SIGNING_ALLOWED=NO build
+   xcrun simctl install SIMULATOR_UDID \
+     /tmp/myapp-simulator-build/Build/Products/Debug-iphonesimulator/MyApp.app
+   xcrun simctl launch SIMULATOR_UDID com.example.MyApp
+   ```
+
+4. **Install Webcast in the same Mac user account** if it is not installed yet. The agent can use the non-interactive one-liner in **Install** above with its UDID, bundle ID, point dimensions, and Mac Tailscale IP. Replace `WIDTH`/`HEIGHT` with that Simulator's logical-point size. Do not use `sudo`. If Webcast is already installed with a different bundle ID or initial device, rerun the installer with the correct values; merely rebuilding the app does not update Webcast's configured ID.
+5. **Start and verify the broadcast on the Mac.** Open `http://127.0.0.1:8766/` in the Mac's browser and switch **Broadcast** on. An agent with shell access to that Mac can also use the local-only control endpoint:
+
+   ```bash
+   curl -fsS -X POST -H 'Origin: http://127.0.0.1:8766' http://127.0.0.1:8766/enable
+   curl -fsS http://127.0.0.1:8766/status
+   curl -fsS http://MAC_TAILSCALE_IP:8765/health
+   ```
+
+   Confirm the selected Simulator is booted, `enabled` and `ready` are true, and the frame count rises. Open `http://MAC_TAILSCALE_IP:8765/` from the **viewing device** on the tailnet and test a tap. When finished, switch Broadcast off in the control page (or POST to `/disable` with the same Origin header). The agent's SSH connection is for build/control; the viewer connects to the separate preview port.
+
+You can give the agent this brief: **“On my Tailscale-connected Mac, create a native SwiftUI app with bundle ID `com.example.MyApp` for the selected iOS Simulator. Build it for `iphonesimulator`, install and launch it with `simctl`, install/configure Simulator Webcast for that same UDID and bundle ID, enable broadcast locally, verify `/status` and `/health`, and report the private preview URL. Do not publish ports or use physical-device signing.”** Supply your actual app requirements and device details; the example values are placeholders.
 
 ## Use
 
