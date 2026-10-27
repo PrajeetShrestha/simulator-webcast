@@ -188,8 +188,18 @@ async def dispatch_input(command, points):
             raise
 
 def send_input(command, points):
-    future = asyncio.run_coroutine_threadsafe(dispatch_input(command, points), input_loop)
-    return future.result(timeout=10)
+    def run(coroutine):
+        return asyncio.run_coroutine_threadsafe(coroutine, input_loop).result(timeout=10)
+    try:
+        return run(dispatch_input(command, points))
+    except Exception as exc:
+        # idb persists companion socket metadata after the companion exits. Prune the
+        # dead entry and spawn a fresh companion on the next attempt.
+        message = str(exc).lower()
+        if not any(phrase in message for phrase in ('connection refused', 'failed to connect to companion', 'statuscode.unavailable')):
+            raise
+        run(input_manager.list_targets())
+        return run(dispatch_input(command, points))
 
 threading.Thread(target=lambda: (asyncio.set_event_loop(input_loop), input_loop.run_forever()), daemon=True).start()
 

@@ -43,7 +43,7 @@ launchctl print "gui/$(id -u)/com.codekunda.simulator-webcast"
 tail -n 50 "$HOME/Library/Application Support/SimulatorWebcast/server.err"
 ```
 
-`/status` reports `simulator_booted`, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
+`/status` reports `simulator_booted`, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If the `idb_companion` process dies, the server prunes its stale connection and retries the next tap or swipe. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
 
 ## Uninstall
 
