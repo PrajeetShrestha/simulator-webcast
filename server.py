@@ -15,6 +15,7 @@ import time
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
+from idb.common.types import HIDButtonType
 from idb.grpc.management import ClientManager
 
 DEVICE = os.environ['SIMULATOR_UDID']
@@ -180,21 +181,21 @@ CONTROL_PAGE = '''<!doctype html>
   <p id="message" class="message" role="status" aria-live="polite"></p>
 </main>
 <script>
-let state=null,busy=false,refreshing=false;
+let state=null,busy=false,refreshing=false,pendingDevice=null;
 const $=id=>document.getElementById(id);
 function message(text,error=false){const el=$('message');el.textContent=text;el.classList.toggle('error',error)}
 function setBusy(value){busy=value;for(const id of ['devices','select','broadcast-toggle','login-toggle'])$(id).disabled=value;if(!value&&state)render()}
 function statusDot(text,kind){const el=document.createElement('span');el.className='dot '+kind;el.setAttribute('aria-hidden','true');const label=document.createElement('span');label.textContent=text;return [el,label]}
 function render(){if(!state)return;
   $('sim').replaceChildren(...statusDot(state.simulator_booted?'Booted':'Shut down',state.simulator_booted?'on':''));
-  $('uuid').textContent=state.simulator_uuid;
   $('tailip').textContent=state.tailscale_ip;
   const preview=$('preview');preview.href=state.preview_url;preview.textContent=state.preview_url;
   $('video').replaceChildren(...statusDot(state.ready?'Live':state.enabled?'Waiting for frames':'Off',state.ready?'on':state.enabled?'wait':''));
   $('broadcast-toggle').checked=state.enabled;$('login-toggle').checked=state.login_item;
-  const picker=$('devices'),wanted=picker.value||state.simulator_uuid;picker.replaceChildren();
+  const picker=$('devices'),wanted=pendingDevice||state.simulator_uuid;picker.replaceChildren();
   for(const d of state.simulators){const option=document.createElement('option');option.value=d.udid;option.textContent=d.name+' · '+d.runtime.replace('com.apple.CoreSimulator.SimRuntime.','').replaceAll('-',' ')+' · '+d.state+' · '+d.udid.slice(0,8);picker.append(option)}
   picker.value=state.simulators.some(d=>d.udid===wanted)?wanted:state.simulator_uuid;
+  $('uuid').textContent=picker.value||state.simulator_uuid;
   picker.disabled=busy;$('select').disabled=busy||!picker.value||picker.value===state.simulator_uuid;
   $('broadcast-toggle').disabled=busy||(!state.enabled&&!state.simulator_booted);
   $('login-toggle').disabled=busy;
@@ -203,8 +204,8 @@ function render(){if(!state)return;
 }
 async function refresh(){if(refreshing||busy)return;refreshing=true;try{const response=await fetch('/status',{cache:'no-store'});if(!response.ok)throw Error('Status unavailable');state=await response.json();render()}catch(error){message(error.message,true)}finally{refreshing=false}}
 async function post(path,data){const options={method:'POST'};if(data){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(data)}const response=await fetch(path,options);if(!response.ok)throw Error(await response.text())}
-$('devices').addEventListener('change',()=>{$('select').disabled=busy||!state||$('devices').value===state.simulator_uuid});
-$('select').addEventListener('click',async()=>{const udid=$('devices').value;setBusy(true);message('Switching Simulator…');try{await post('/select',{udid});message('Simulator switched.')}catch(error){message(error.message,true)}finally{setBusy(false);await refresh()}});
+$('devices').addEventListener('change',()=>{pendingDevice=$('devices').value;$('uuid').textContent=pendingDevice;$('select').disabled=busy||!state||pendingDevice===state.simulator_uuid});
+$('select').addEventListener('click',async()=>{const udid=$('devices').value;setBusy(true);message('Switching Simulator…');try{await post('/select',{udid});pendingDevice=null;message('Simulator switched.')}catch(error){message(error.message,true)}finally{busy=false;await refresh();render()}});
 $('broadcast-toggle').addEventListener('change',async event=>{const desired=event.target.checked;setBusy(true);message('');try{await post(desired?'/enable':'/disable');message(desired?'Broadcast started.':'Broadcast stopped.')}catch(error){event.target.checked=!desired;message(error.message,true)}finally{setBusy(false);await refresh()}});
 $('login-toggle').addEventListener('change',async event=>{const desired=event.target.checked;setBusy(true);message('');try{await post(desired?'/login-enable':'/login-disable');message(desired?'Starts at login.':'Login startup disabled.')}catch(error){event.target.checked=!desired;message(error.message,true)}finally{setBusy(false);await refresh()}});
 async function copy(text){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return}const input=document.createElement('textarea');input.value=text;input.style.position='fixed';input.style.opacity='0';document.body.append(input);input.select();const okay=document.execCommand('copy');input.remove();if(!okay)throw Error('Clipboard unavailable in this browser')}
@@ -323,8 +324,10 @@ async def dispatch_input(command, points):
         try:
             if command == 'tap':
                 await input_client.tap(x=points[0], y=points[1])
-            else:
+            elif command == 'swipe':
                 await input_client.swipe(p_start=(points[0], points[1]), p_end=(points[2], points[3]), duration=0.3)
+            elif command == 'home':
+                await input_client.button(button_type=HIDButtonType.HOME)
         except Exception:
             try:
                 await input_context.__aexit__(None, None, None)
@@ -420,8 +423,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             data=json.loads(self.rfile.read(length) or b'{}')
             if self.path=='/home':
-                p=subprocess.run(['/usr/bin/xcrun','simctl','terminate',DEVICE,APP],capture_output=True,text=True,timeout=10)
-                if p.returncode: raise RuntimeError(p.stderr.strip())
+                send_input('home',[])
             elif self.path=='/run':
                 p=subprocess.run(['/usr/bin/xcrun','simctl','launch',DEVICE,APP],capture_output=True,text=True,timeout=10)
                 if p.returncode: raise RuntimeError(p.stderr.strip())
