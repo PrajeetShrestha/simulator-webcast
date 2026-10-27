@@ -26,11 +26,11 @@ An existing `com.codekunda.simulator-webcast` LaunchAgent is backed up and repla
 ## Use
 
 1. Boot the selected Simulator in Xcode or Simulator and launch your app. The installer does not boot a Simulator or build your project.
-2. On the Mac, open **http://127.0.0.1:8766/**. Check that Simulator says **Booted**, then click **Start broadcast**.
+2. On the Mac, open **http://127.0.0.1:8766/**. The page shows the Mac’s Tailscale IP and exact preview URL. Check that Simulator says **Booted**, then click **Start broadcast**.
 3. On a tailnet-connected viewing device, open the preview URL shown on the control page (`http://MAC_TAILSCALE_IP:8765/`). Tap or swipe the image to interact.
 4. Click **Stop broadcast** in the local control page when done. The preview and input endpoints return unavailable while off, and the stream process is terminated. The enabled/disabled choice persists across service restarts.
 
-Control UI is **localhost-only**. The preview binds only the Mac's Tailscale IPv4; it is not public. Anyone allowed to reach the preview port by your tailnet policy can view/control the Simulator while enabled. The HTTP Origin check is not authentication.
+Control UI is **localhost-only**. The preview binds only the Mac's configured Tailscale IPv4; it is not public. The control page always shows the address, but it only works from permitted tailnet devices when broadcast is on and the Mac/Tailscale connection is online. Anyone allowed to reach the preview port by your tailnet policy can view/control the Simulator while enabled. The HTTP Origin check is not authentication.
 
 The Mac must remain awake, logged in, and connected to Tailscale. A LaunchAgent cannot log in or boot a shut-down Simulator after reboot. Physical iPhone features (camera, Bluetooth, push notifications, performance) are not simulated accurately.
 
