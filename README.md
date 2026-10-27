@@ -26,7 +26,7 @@ An existing `com.codekunda.simulator-webcast` LaunchAgent is backed up and repla
 ## Use
 
 1. Boot the initially selected Simulator in Xcode or Simulator and launch your app. The installer does not boot a Simulator or build your project.
-2. On the Mac, open **http://127.0.0.1:8766/**. The page lists available iOS Simulators with their runtime, boot status and UUID. Choosing a device updates the displayed and copied UUID immediately; click **Switch** to make that device active. A shut-down choice is booted automatically. The Mac’s Tailscale IP and exact preview URL also have **Copy** buttons. Use the **Start control server at login** switch to control automatic startup, and the **Broadcast** switch to start or stop the preview.
+2. On the Mac, open **http://127.0.0.1:8766/**. The page lists available iOS Simulators with their runtime, boot status and UUID. Choosing a device updates the displayed and copied UUID immediately; click **Switch** to make that device active. The page shows boot/switch progress and the chosen device's actual state. A shut-down choice is booted and verified before the previously selected Simulator is shut down; unrelated booted Simulators are untouched. The Mac’s Tailscale IP and exact preview URL also have **Copy** buttons. Use the **Start control server at login** switch to control automatic startup, and the **Broadcast** switch to start or stop the preview.
 3. On a tailnet-connected viewing device, open the preview URL shown on the control page (`http://MAC_TAILSCALE_IP:8765/`). Tap or swipe the image to interact.
    **Home** presses the selected Simulator's Home button, regardless of which app is running; **Run app** launches the configured bundle ID.
 4. Click **Stop broadcast** in the local control page when done. The preview and input endpoints return unavailable while off, and the stream process is terminated. Both the selected Simulator and enabled/disabled choice persist across service restarts. Switching while broadcasting retargets the stream and input without changing the broadcast setting. The configured app bundle ID stays the same, so **Run app** requires that app to be installed on the new Simulator.
@@ -44,7 +44,7 @@ launchctl print "gui/$(id -u)/com.codekunda.simulator-webcast"
 tail -n 50 "$HOME/Library/Application Support/SimulatorWebcast/server.err"
 ```
 
-`/status` reports login-item state, available iOS Simulators, selected UUID, `simulator_booted`, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If the `idb_companion` process dies, the server prunes its stale connection and retries the next tap or swipe. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
+`/status` reports login-item state, available iOS Simulators, selected UUID, `simulator_booted`, switch target/phase and last switch result, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If the `idb_companion` process dies, the server prunes its stale connection and retries the next tap or swipe. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
 
 ## Uninstall
 

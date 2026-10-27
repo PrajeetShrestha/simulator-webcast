@@ -51,6 +51,11 @@ if isinstance(saved_state.get('simulator_uuid'), str):
 POINT_WIDTH = int(saved_state.get('point_width', POINT_WIDTH))
 POINT_HEIGHT = int(saved_state.get('point_height', POINT_HEIGHT))
 active = threading.Event()
+switch_lock = threading.Lock()
+switch_target = None
+switch_phase = None
+switch_serial = 0
+switch_result = None
 if enabled:
     active.set()
 
@@ -74,38 +79,75 @@ def save_state():
     temp.replace(STATE_PATH)
 
 def select_simulator(udid):
-    global DEVICE, POINT_WIDTH, POINT_HEIGHT, frame, last_frame_time
+    global DEVICE, POINT_WIDTH, POINT_HEIGHT, frame, last_frame_time, switch_target, switch_phase, switch_serial, switch_result
     if not isinstance(udid, str):
         raise ValueError('Invalid Simulator UUID')
     choices = {d['udid']: d for d in simulators()}
     if udid not in choices:
         raise ValueError('Simulator is not available')
-    if udid == DEVICE:
-        return
-    if choices[udid]['state'] != 'Booted':
-        result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'boot', udid], capture_output=True, text=True, timeout=30)
-        if result.returncode:
-            raise RuntimeError(result.stderr.strip() or 'Could not boot Simulator')
+    if not switch_lock.acquire(blocking=False):
+        raise RuntimeError('A Simulator switch is already in progress')
+    old_device = DEVICE
+    booted_here = False
+    switch_serial += 1
+    current_switch = switch_serial
+    switch_result = None
+    switch_target = udid
+    try:
+        if udid == old_device:
+            return
+        if choices[udid]['state'] != 'Booted':
+            switch_phase = 'Booting selected Simulator…'
+            result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'boot', udid], capture_output=True, text=True, timeout=30)
+            if result.returncode:
+                raise RuntimeError(result.stderr.strip() or 'Could not boot selected Simulator')
+            booted_here = True
+        switch_phase = 'Waiting for selected Simulator to finish booting…'
         result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'bootstatus', udid, '-b'], capture_output=True, text=True, timeout=120)
         if result.returncode:
-            raise RuntimeError(result.stderr.strip() or 'Simulator boot failed')
-    def display_value(key):
-        result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'getenv', udid, key], capture_output=True, text=True, timeout=10, check=True)
-        return float(result.stdout.strip())
-    try:
-        scale = display_value('SIMULATOR_MAINSCREEN_SCALE')
-        width = round(display_value('SIMULATOR_MAINSCREEN_WIDTH') / scale)
-        height = round(display_value('SIMULATOR_MAINSCREEN_HEIGHT') / scale)
-    except (OSError, subprocess.SubprocessError, ValueError, ZeroDivisionError) as exc:
-        raise RuntimeError('Could not determine Simulator screen size') from exc
-    with condition:
-        DEVICE, POINT_WIDTH, POINT_HEIGHT = udid, width, height
-        frame = b''
-        last_frame_time = 0
-        save_state()
-        if stream_process is not None and stream_process.poll() is None:
-            stream_process.terminate()
-        condition.notify_all()
+            raise RuntimeError(result.stderr.strip() or 'Selected Simulator failed to boot')
+        def display_value(key):
+            result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'getenv', udid, key], capture_output=True, text=True, timeout=10, check=True)
+            return float(result.stdout.strip())
+        try:
+            scale = display_value('SIMULATOR_MAINSCREEN_SCALE')
+            width = round(display_value('SIMULATOR_MAINSCREEN_WIDTH') / scale)
+            height = round(display_value('SIMULATOR_MAINSCREEN_HEIGHT') / scale)
+        except (OSError, subprocess.SubprocessError, ValueError, ZeroDivisionError) as exc:
+            raise RuntimeError('Could not determine selected Simulator screen size') from exc
+        if any(d['udid'] == old_device and d['state'] == 'Booted' for d in simulators()):
+            switch_phase = 'Shutting down previous Simulator…'
+            result = subprocess.run(['/usr/bin/xcrun', 'simctl', 'shutdown', old_device], capture_output=True, text=True, timeout=30)
+            if result.returncode:
+                raise RuntimeError(result.stderr.strip() or 'Could not shut down previous Simulator')
+            for _ in range(20):
+                if any(d['udid'] == old_device and d['state'] == 'Shutdown' for d in simulators()):
+                    break
+                time.sleep(0.5)
+            else:
+                raise RuntimeError('Previous Simulator did not shut down')
+        switch_phase = 'Connecting to selected Simulator…'
+        with condition:
+            DEVICE, POINT_WIDTH, POINT_HEIGHT = udid, width, height
+            frame = b''
+            last_frame_time = 0
+            save_state()
+            if stream_process is not None and stream_process.poll() is None:
+                stream_process.terminate()
+            condition.notify_all()
+        switch_result = {'id': current_switch, 'ok': True, 'message': 'Selected Simulator booted; previous shut down.'}
+    except Exception as exc:
+        switch_result = {'id': current_switch, 'ok': False, 'message': str(exc)}
+        if booted_here and DEVICE == old_device:
+            try:
+                subprocess.run(['/usr/bin/xcrun', 'simctl', 'shutdown', udid], capture_output=True, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        raise
+    finally:
+        switch_target = None
+        switch_phase = None
+        switch_lock.release()
 
 def set_enabled(value):
     global enabled, frame, last_frame_time
@@ -154,6 +196,7 @@ CONTROL_PAGE = '''<!doctype html>
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-size:14px;line-height:1.4}main{max-width:760px;margin:0 auto;padding:48px 24px 64px}.heading{display:flex;align-items:center;gap:16px;margin-bottom:32px}.app-icon{width:54px;height:54px;flex:none;display:grid;place-items:center;border-radius:14px;background:linear-gradient(145deg,#62b1ff,#0868db);box-shadow:inset 0 1px #ffffff99,0 3px 9px #007aff45;color:white}.app-icon svg{width:32px;height:32px}h1{font-size:26px;letter-spacing:-.025em;line-height:1.1;margin:0;font-weight:700}.subtitle{margin:5px 0 0;color:var(--secondary)}.section{margin-top:28px}.section h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.065em;color:var(--secondary);margin:0 0 9px 12px}.group{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}.setting{min-height:58px;margin:0 16px;padding:12px 0;display:flex;align-items:center;justify-content:space-between;gap:16px}.setting+.setting{border-top:1px solid var(--line)}.setting.stack{align-items:stretch;flex-direction:column;gap:9px}.label{font-weight:500}.hint{display:block;color:var(--secondary);font-size:12px;font-weight:400;margin-top:3px}.value{min-width:0;text-align:right;color:var(--secondary)}.mono{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;color:var(--text)}.value-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:8px}.value-actions .mono{min-width:0;text-align:right}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:#98989d}.dot.on{background:#30b85d}.dot.wait{background:#ff9f0a}select,button{font:inherit}select{appearance:auto;max-width:100%;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;color:var(--text);background:var(--bg)}.device-select{width:100%}.picker{display:flex;gap:9px}.picker select{flex:1}.button{border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:7px 12px;white-space:nowrap;cursor:pointer;box-shadow:0 1px 2px #00000010}.button:hover:not(:disabled){background:var(--bg)}.button.primary{background:var(--accent);border-color:var(--accent);color:white}.button.primary:hover:not(:disabled){filter:brightness(1.08)}.button.small{font-size:12px;padding:5px 8px}.button:disabled,select:disabled{opacity:.5;cursor:default}.switch{position:relative;flex:none;display:inline-block;width:38px;height:23px;cursor:pointer}.switch input{position:absolute;inset:0;z-index:1;opacity:0;width:100%;height:100%;margin:0;cursor:inherit}.track{pointer-events:none;display:block;height:23px;border-radius:14px;background:#d0d0d5;border:1px solid #bcbcc2;transition:background .18s,border-color .18s}.track:after{content:"";display:block;width:19px;height:19px;margin:1px;border-radius:50%;background:white;box-shadow:0 1px 3px #0005;transition:transform .18s}.switch input:checked+.track{background:#30c75a;border-color:#30c75a}.switch input:checked+.track:after{transform:translateX(15px)}.switch input:disabled+.track{opacity:.5}.switch input:focus-visible+.track,.button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}.footnote{font-size:12px;color:var(--secondary);margin:9px 12px 0}.message{min-height:20px;margin:22px 2px 0;color:var(--secondary);font-size:13px}.message.error{color:var(--red)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:560px){main{padding:28px 16px 40px}.setting{margin:0 14px}.setting.wrap{align-items:flex-start;flex-direction:column;gap:7px}.setting.wrap .value-actions{width:100%;justify-content:space-between}.setting.wrap .mono{text-align:left}.picker{flex-wrap:wrap}.picker select{flex-basis:100%}.picker .button{margin-left:auto}.heading{margin-bottom:26px}h1{font-size:23px}}
 @media(prefers-reduced-motion:reduce){.track,.track:after{transition:none}}
+.dot.wait{animation:pulse 1s ease-in-out infinite alternate}@keyframes pulse{to{opacity:.35}}
 </style>
 </head>
 <body>
@@ -164,9 +207,9 @@ CONTROL_PAGE = '''<!doctype html>
   </header>
   <section class="section" aria-labelledby="device-heading"><h2 id="device-heading">Simulator</h2><div class="group">
     <div class="setting stack"><label class="label" for="devices">Selected device</label><div class="picker"><select id="devices" class="device-select" aria-label="iOS Simulator"></select><button class="button primary" id="select" disabled>Switch</button></div></div>
-    <div class="setting"><span class="label">State</span><span class="value" id="sim">Checking…</span></div>
+    <div class="setting"><span class="label">Device state</span><span class="value" id="sim">Checking…</span></div>
     <div class="setting wrap"><span class="label">UUID</span><span class="value-actions"><span class="mono" id="uuid">Checking…</span><button class="button small" type="button" data-copy="uuid" aria-label="Copy Simulator UUID" disabled>Copy</button></span></div>
-  </div><p class="footnote">Switching boots a shut-down Simulator. Your broadcast setting stays the same.</p></section>
+  </div><p class="footnote">Switching boots the selected Simulator and shuts down the previous one. Other open Simulators are untouched.</p></section>
   <section class="section" aria-labelledby="broadcast-heading"><h2 id="broadcast-heading">Broadcast</h2><div class="group">
     <div class="setting"><span class="label" id="broadcast-label">Broadcast<span class="hint">Allow permitted tailnet devices to view and control the Simulator.</span></span><label class="switch"><input id="broadcast-toggle" type="checkbox" role="switch" aria-labelledby="broadcast-label" disabled><span class="track" aria-hidden="true"></span></label></div>
     <div class="setting"><span class="label">Video</span><span class="value" id="video">Checking…</span></div>
@@ -181,13 +224,18 @@ CONTROL_PAGE = '''<!doctype html>
   <p id="message" class="message" role="status" aria-live="polite"></p>
 </main>
 <script>
-let state=null,busy=false,refreshing=false,pendingDevice=null;
+let state=null,busy=false,refreshPromise=null,pendingDevice=null,seenSwitchResult=0;
 const $=id=>document.getElementById(id);
 function message(text,error=false){const el=$('message');el.textContent=text;el.classList.toggle('error',error)}
 function setBusy(value){busy=value;for(const id of ['devices','select','broadcast-toggle','login-toggle'])$(id).disabled=value;if(!value&&state)render()}
 function statusDot(text,kind){const el=document.createElement('span');el.className='dot '+kind;el.setAttribute('aria-hidden','true');const label=document.createElement('span');label.textContent=text;return [el,label]}
 function render(){if(!state)return;
-  $('sim').replaceChildren(...statusDot(state.simulator_booted?'Booted':'Shut down',state.simulator_booted?'on':''));
+  const chosen=pendingDevice||state.simulator_uuid,selected=state.simulators.find(d=>d.udid===chosen);
+  const phase=state.switch_target===chosen?state.switch_phase:null;
+  const booted=selected&&selected.state==='Booted';
+  $('sim').replaceChildren(...statusDot(phase||((selected&&selected.state)||'Unavailable'),phase?'wait':booted?'on':''));
+  if(busy&&phase)message(phase);
+  if(!busy&&state.switch_result&&state.switch_result.id!==seenSwitchResult){seenSwitchResult=state.switch_result.id;message(state.switch_result.message,!state.switch_result.ok)}
   $('tailip').textContent=state.tailscale_ip;
   const preview=$('preview');preview.href=state.preview_url;preview.textContent=state.preview_url;
   $('video').replaceChildren(...statusDot(state.ready?'Live':state.enabled?'Waiting for frames':'Off',state.ready?'on':state.enabled?'wait':''));
@@ -197,20 +245,21 @@ function render(){if(!state)return;
   picker.value=state.simulators.some(d=>d.udid===wanted)?wanted:state.simulator_uuid;
   $('uuid').textContent=picker.value||state.simulator_uuid;
   picker.disabled=busy;$('select').disabled=busy||!picker.value||picker.value===state.simulator_uuid;
+  $('select').textContent=busy?'Switching…':'Switch';
   $('broadcast-toggle').disabled=busy||(!state.enabled&&!state.simulator_booted);
   $('login-toggle').disabled=busy;
   for(const button of document.querySelectorAll('[data-copy]'))button.disabled=!$(button.dataset.copy).textContent||$(button.dataset.copy).textContent==='Checking…';
   $('link').textContent=state.enabled?'Available to permitted tailnet devices while the Simulator is booted.':'Preview is off. Turn on Broadcast to make this address available.';
 }
-async function refresh(){if(refreshing||busy)return;refreshing=true;try{const response=await fetch('/status',{cache:'no-store'});if(!response.ok)throw Error('Status unavailable');state=await response.json();render()}catch(error){message(error.message,true)}finally{refreshing=false}}
+async function refresh(){if(refreshPromise)return refreshPromise;refreshPromise=(async()=>{try{const response=await fetch('/status',{cache:'no-store'});if(!response.ok)throw Error('Status unavailable');state=await response.json();render()}catch(error){message(error.message,true)}})();try{await refreshPromise}finally{refreshPromise=null}}
 async function post(path,data){const options={method:'POST'};if(data){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(data)}const response=await fetch(path,options);if(!response.ok)throw Error(await response.text())}
 $('devices').addEventListener('change',()=>{pendingDevice=$('devices').value;$('uuid').textContent=pendingDevice;$('select').disabled=busy||!state||pendingDevice===state.simulator_uuid});
-$('select').addEventListener('click',async()=>{const udid=$('devices').value;setBusy(true);message('Switching Simulator…');try{await post('/select',{udid});pendingDevice=null;message('Simulator switched.')}catch(error){message(error.message,true)}finally{busy=false;await refresh();render()}});
+$('select').addEventListener('click',async()=>{const udid=$('devices').value;setBusy(true);message('Starting Simulator switch…');try{await post('/select',{udid});pendingDevice=null;await refresh();if(state.simulator_uuid!==udid||!state.simulator_booted)throw Error('Selected Simulator is not booted');message(state.enabled?(state.ready?'Selected Simulator booted; previous shut down. Preview is live.':'Selected Simulator booted; previous shut down. Waiting for preview frames…'):'Selected Simulator booted; previous shut down.')}catch(error){message(error.message,true)}finally{busy=false;await refresh();render()}});
 $('broadcast-toggle').addEventListener('change',async event=>{const desired=event.target.checked;setBusy(true);message('');try{await post(desired?'/enable':'/disable');message(desired?'Broadcast started.':'Broadcast stopped.')}catch(error){event.target.checked=!desired;message(error.message,true)}finally{setBusy(false);await refresh()}});
 $('login-toggle').addEventListener('change',async event=>{const desired=event.target.checked;setBusy(true);message('');try{await post(desired?'/login-enable':'/login-disable');message(desired?'Starts at login.':'Login startup disabled.')}catch(error){event.target.checked=!desired;message(error.message,true)}finally{setBusy(false);await refresh()}});
 async function copy(text){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return}const input=document.createElement('textarea');input.value=text;input.style.position='fixed';input.style.opacity='0';document.body.append(input);input.select();const okay=document.execCommand('copy');input.remove();if(!okay)throw Error('Clipboard unavailable in this browser')}
 for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{const target=$(button.dataset.copy);const value=button.dataset.copy==='preview'?target.href:target.textContent;try{await copy(value);button.textContent='Copied';message('Copied to clipboard.');setTimeout(()=>button.textContent='Copy',1600)}catch(error){message(error.message,true)}});
-refresh();setInterval(refresh,3000);
+refresh();setInterval(refresh,1000);
 </script>
 </body>
 </html>
@@ -373,7 +422,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path=='/status':
                 age = time.monotonic()-last_frame_time if last_frame_time else None
                 devices = simulators()
-                return self.reply(200,json.dumps({'enabled':enabled,'simulator_booted':any(d['udid']==DEVICE and d['state']=='Booted' for d in devices),'simulator_uuid':DEVICE,'simulators':devices,'ready':enabled and bool(frame) and age is not None and age<3,'frames':version,'age_ms':round(age*1000) if age is not None else None,'tailscale_ip':HOST,'preview_url':'http://%s:%d/' % (HOST,PORT),'login_item':login_item_enabled()}).encode(),'application/json')
+                return self.reply(200,json.dumps({'enabled':enabled,'simulator_booted':any(d['udid']==DEVICE and d['state']=='Booted' for d in devices),'simulator_uuid':DEVICE,'simulators':devices,'switch_target':switch_target,'switch_phase':switch_phase,'switch_result':switch_result,'ready':enabled and bool(frame) and age is not None and age<3,'frames':version,'age_ms':round(age*1000) if age is not None else None,'tailscale_ip':HOST,'preview_url':'http://%s:%d/' % (HOST,PORT),'login_item':login_item_enabled()}).encode(),'application/json')
             return self.reply(404,b'Not found')
         if path=='/' and not enabled: return self.reply(503,b'Broadcast is off. Open the local control page on the Mac.', 'text/plain')
         if path=='/': return self.reply(200,PAGE.encode(),'text/html; charset=utf-8')
