@@ -1,6 +1,6 @@
 # Simulator Webcast
 
-Private, interactive iOS Simulator preview over Tailscale. A local control page shows whether the selected Simulator is booted and lets you start or stop the video broadcast. Video prefers `idb` MJPEG and falls back to `simctl` JPEG screenshots if the idb video surface is unavailable; browser taps and swipes use a persistent `idb` input connection.
+Private, interactive iOS Simulator preview over Tailscale. A local control page lets you choose an available iOS Simulator and start or stop the video broadcast. Video prefers `idb` MJPEG and falls back to `simctl` JPEG screenshots if the idb video surface is unavailable; browser taps and swipes use a persistent `idb` input connection.
 
 ## Requirements
 
@@ -25,10 +25,10 @@ An existing `com.codekunda.simulator-webcast` LaunchAgent is backed up and repla
 
 ## Use
 
-1. Boot the selected Simulator in Xcode or Simulator and launch your app. The installer does not boot a Simulator or build your project.
-2. On the Mac, open **http://127.0.0.1:8766/**. The page shows the selected Simulator UUID, the Mac’s Tailscale IP, and the exact preview URL. Check that Simulator says **Booted**, then click **Start broadcast**.
+1. Boot the initially selected Simulator in Xcode or Simulator and launch your app. The installer does not boot a Simulator or build your project.
+2. On the Mac, open **http://127.0.0.1:8766/**. The page lists available iOS Simulators with their runtime, boot status and UUID. Choose one and click **Switch**; a shut-down choice is booted automatically. The selected UUID, Mac’s Tailscale IP and exact preview URL are shown below. Click **Start broadcast** when ready.
 3. On a tailnet-connected viewing device, open the preview URL shown on the control page (`http://MAC_TAILSCALE_IP:8765/`). Tap or swipe the image to interact.
-4. Click **Stop broadcast** in the local control page when done. The preview and input endpoints return unavailable while off, and the stream process is terminated. The enabled/disabled choice persists across service restarts.
+4. Click **Stop broadcast** in the local control page when done. The preview and input endpoints return unavailable while off, and the stream process is terminated. Both the selected Simulator and enabled/disabled choice persist across service restarts. Switching while broadcasting retargets the stream and input without changing the broadcast setting. The configured app bundle ID stays the same, so **Run app** requires that app to be installed on the new Simulator.
 
 Control UI is **localhost-only**. The preview binds only the Mac's configured Tailscale IPv4; it is not public. The control page always shows the address, but it only works from permitted tailnet devices when broadcast is on and the Mac/Tailscale connection is online. Anyone allowed to reach the preview port by your tailnet policy can view/control the Simulator while enabled. The HTTP Origin check is not authentication.
 
@@ -43,7 +43,7 @@ launchctl print "gui/$(id -u)/com.codekunda.simulator-webcast"
 tail -n 50 "$HOME/Library/Application Support/SimulatorWebcast/server.err"
 ```
 
-`/status` reports `simulator_booted`, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If the `idb_companion` process dies, the server prunes its stale connection and retries the next tap or swipe. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
+`/status` reports available iOS Simulators, selected UUID, `simulator_booted`, `enabled`, `ready`, frame count, and frame age. `ready` requires a frame younger than three seconds. The fallback is slower than direct MJPEG; the log records when it is selected. If the `idb_companion` process dies, the server prunes its stale connection and retries the next tap or swipe. If video stops, check the exact Simulator's boot state, `idb_companion`, and Tailscale.
 
 ## Uninstall
 
