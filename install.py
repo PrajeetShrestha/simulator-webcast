@@ -126,6 +126,7 @@ def main():
     with PLIST.open('wb') as file:
         plistlib.dump(plist, file)
     domain = f'gui/{os.getuid()}'
+    run('launchctl', 'enable', f'{domain}/{LABEL}')
     run('launchctl', 'bootout', f'{domain}/{LABEL}', check=False)
     for attempt in range(3):
         result = run('launchctl', 'bootstrap', domain, str(PLIST), check=False)
